@@ -48,13 +48,12 @@ final class Plugin implements Bootable, HandlesArguments, Terminable // @pest-ar
             ->addTestCaseMethodFilter(new UsesBrowserTestCaseMethodFilter());
 
         pest()->afterEach(function (): void {
-            if (Playwright::shouldDebugAssertions()) {
-                /** @var TestStatus $status */
-                $status = $this->status(); // @phpstan-ignore-line
+            /** @var TestStatus $status */
+            $status = $this->status(); // @phpstan-ignore-line
+            $failed_or_error = $status->isFailure() || $status->isError();
 
-                if ($status->isFailure() || $status->isError()) {
-                    Execution::instance()->debug($status);
-                }
+            if (Playwright::shouldDebugAssertions() && $failed_or_error) {
+                Execution::instance()->debug($status);
             }
 
             ServerManager::instance()->http()->flush();
