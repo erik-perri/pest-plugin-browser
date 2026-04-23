@@ -7,11 +7,14 @@ namespace Pest\Browser;
 use Error;
 use Pest\Browser\Enums\BrowserType;
 use Pest\Browser\Enums\ColorScheme;
+use Pest\Browser\Enums\TracingOption;
 use Pest\Browser\Exceptions\BrowserNotSupportedException;
 use Pest\Browser\Exceptions\HttpServerConfigurationException;
 use Pest\Browser\Exceptions\OptionNotSupportedInParallelException;
+use Pest\Browser\Exceptions\TracingOptionNotSupportedException;
 use Pest\Browser\Filters\UsesBrowserTestCaseMethodFilter;
 use Pest\Browser\Playwright\Playwright;
+use Pest\Browser\Playwright\Tracing;
 use Pest\Browser\Support\PersistHttpServer;
 use Pest\Browser\Support\PersistPlaywrightServer;
 use Pest\Browser\Support\Port;
@@ -57,6 +60,13 @@ final class Plugin implements Bootable, HandlesArguments, Terminable // @pest-ar
             ServerManager::instance()->http()->flush();
 
             Playwright::reset();
+
+            if (Playwright::tracingOption() === TracingOption::RETAIN_ON_FAILURE && $failed_or_error === false) {
+                @unlink(Tracing::path());
+                if (glob(Tracing::dir().'/*') === []) {
+                    @rmdir(Tracing::dir());
+                }
+            }
         })->in($this->in());
     }
 
@@ -100,6 +110,31 @@ final class Plugin implements Bootable, HandlesArguments, Terminable // @pest-ar
         $arguments = $this->handleHttpServerArguments($arguments);
 
         $arguments = $this->handlePlaywrightServerArguments($arguments);
+
+        if ($this->hasArgument('--trace', $arguments)) {
+            $index = array_search('--trace', $arguments, true);
+
+            if ($index === false || ! isset($arguments[$index + 1])) {
+                throw new TracingOptionNotSupportedException(
+                    'The "--trace" argument requires a value. Usage: --trace <option> (e.g., on, retain-on-failure).'
+                );
+            }
+
+            $option = $arguments[$index + 1];
+
+            if (($option = TracingOption::tryFrom($option)) === null) {
+                throw new TracingOptionNotSupportedException(
+                    'The specified tracing type is not supported. Supported types are: '.
+                    implode(', ', array_map(fn (TracingOption $type): string => mb_strtolower($type->name), TracingOption::cases()))
+                );
+            }
+
+            Playwright::setTracingOption($option);
+
+            unset($arguments[$index], $arguments[$index + 1]);
+
+            $arguments = array_values($arguments);
+        }
 
         if ($this->hasArgument('--browser', $arguments)) {
             $index = array_search('--browser', $arguments, true);
